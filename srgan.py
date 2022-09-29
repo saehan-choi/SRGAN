@@ -14,6 +14,8 @@ import torch.optim as optim
 
 from tqdm import tqdm
 
+import timm
+
 # reference
 # https://medium.com/analytics-vidhya/super-resolution-gan-srgan-5e10438aec0c
 
@@ -22,12 +24,24 @@ class CFG:
     dataPath = './data/'
     device = 'cuda'
     
-    lr = 3e-4
+    # srgan recommand lr 0.001
+    lr = 1e-4
     batch_size = 1
     
-    discLoss = nn.MSELoss()
-    genLoss = nn.MSELoss()
+    mseLoss = nn.MSELoss()
     # mse로 한번 해봅시다
+    bceLoss = nn.BCELoss()
+
+def resnetModel(input):
+    model = timm.create_model('resnet50', pretrained=True)
+    # model.layer4 = nn.Identity()
+    model.global_pool = nn.Identity()
+    model.fc = nn.Identity()
+    
+    return model(input)
+
+    # print(model(torch.randn(1,3,256,256)).size())
+    # print(model)
 
 class Generator(nn.Module):
     def __init__(self):
@@ -146,16 +160,15 @@ class ImageDataset(Dataset):
 # print(f'input size: {input.size()}')
 # print(f'output size: {output.size()}')
 
-
-def train_one_epoch(G_model, D_model, optimizer, dataloader, epoch):
+def train_one_epoch(G_model, D_model, G_optimizer, D_optimizer, dataloader, epoch):
     G_model.train()
     D_model.train()
     
     dataset_size = 0
     running_loss = 0
     
-    discLoss = CFG.discLoss
-    genLoss = CFG.genLoss
+    mseLoss = CFG.mseLoss
+    bceLoss = CFG.bceLoss
     
     bar = tqdm(enumerate(dataloader), total=len(dataloader))
 
@@ -167,24 +180,29 @@ def train_one_epoch(G_model, D_model, optimizer, dataloader, epoch):
 
         batch_size = HRimages.size(0)
 
-        # 나중에 dtype 빼보고도 해보기!!! 되는지
         # Discriminator Loss part
         G_outputs = G_model(LRimages).to(CFG.device, dtype=torch.float)
         
         fakeLabel = D_model(G_outputs).to(CFG.device, dtype=torch.float)
         realLabel = D_model(HRimages).to(CFG.device, dtype=torch.float)
 
-        d1Loss = torch.mean(discLoss(fakeLabel, torch.zeros_like(fakeLabel, dtype=torch.float)))
-        d2Loss = torch.mean(discLoss(realLabel, torch.ones_like(realLabel, dtype=torch.float)))
+        d1Loss = torch.mean(mseLoss(fakeLabel, torch.zeros_like(fakeLabel, dtype=torch.float)))
+        d2Loss = torch.mean(mseLoss(realLabel, torch.ones_like(realLabel, dtype=torch.float)))
         dLoss = d1Loss+d2Loss
+        # 여기에 optimizer도 들어가야함 -> 분석하기
+        D_optimizer.zero_grad()
         d2Loss.backward()
-        d1Loss.backward()
-        
-        # Generator Loss part
-        gLoss = genLoss(fakeLabel, torch.ones_like(fakeLabel))
-        
+        d1Loss.backward(retain_graph=True)
+        D_optimizer.step()
+        # D_optimizer 이것들을 
 
-        loss = nn.CrossEntropyLoss()(outputs, labels)
+        # Generator Loss part
+        g1Loss = mseLoss(fakeLabel, torch.ones_like(fakeLabel))
+        g2Loss = mseLoss(resnetModel(G_outputs), resnetModel(HRimages))
+        g3Loss = mseLoss(G_outputs, HRimages)
+        gLoss = g1Loss + g2Loss + g3Loss
+        gLoss.backward()
+
 
         loss.backward()
         optimizer.step()
