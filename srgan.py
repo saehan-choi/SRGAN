@@ -16,8 +16,12 @@ from tqdm import tqdm
 
 import timm
 
+import torchvision
+
 # reference
 # https://medium.com/analytics-vidhya/super-resolution-gan-srgan-5e10438aec0c
+# https://www.kaggle.com/code/balraj98/single-image-super-resolution-gan-srgan-pytorch
+# ->여기도 보기
 
 class CFG:
     
@@ -31,17 +35,23 @@ class CFG:
     mseLoss = nn.MSELoss()
     # mse로 한번 해봅시다
     bceLoss = nn.BCELoss()
-
-def resnetModel(input):
-    model = timm.create_model('resnet50', pretrained=True)
-    # model.layer4 = nn.Identity()
-    model.global_pool = nn.Identity()
-    model.fc = nn.Identity()
+    epochs = 100
+    
+def vggModel(input, resnet=False):
+    if resnet:
+        model = timm.create_model('resnet50', pretrained=True)
+        model.global_pool = nn.Identity()
+        model.fc = nn.Identity()
+    
+    else:
+        model = torchvision.models.vgg19_bn(pretrained=True).to(CFG.device, dtype=torch.float)
+        model = model.features[:7]
     
     return model(input)
 
     # print(model(torch.randn(1,3,256,256)).size())
     # print(model)
+
 
 class Generator(nn.Module):
     def __init__(self):
@@ -101,7 +111,7 @@ class Discriminator(nn.Module):
         
         self.leakyrelu = nn.LeakyReLU()
         self.sigmoid = nn.Sigmoid()
-        
+
     def forward(self, x):
         x = self.conv1(x)
         x = self.conv2(x)
@@ -123,11 +133,11 @@ class Discriminator(nn.Module):
                             )
 
     def MLPblock(self, x, in_features, out_features=1024):
-        model = nn.Linear(in_features=in_features, out_features=out_features)
+        model = nn.Linear(in_features=in_features, out_features=out_features).to(CFG.device)
         x = self.leakyrelu(model(x))
-        model = nn.Linear(in_features=out_features, out_features=1)
+        model = nn.Linear(in_features=out_features, out_features=1).to(CFG.device)
         x = self.sigmoid(model(x))
-        
+
         return x
 
 class ImageDataset(Dataset):
@@ -144,21 +154,15 @@ class ImageDataset(Dataset):
 
     def __getitem__(self, index):
         HRimage = cv2.imread(self.dataList[index], cv2.COLOR_BGR2RGB)
+        HRimage = cv2.resize(HRimage, dsize=(40, 40))
         h, w = HRimage.shape[:2]
         LRimage = cv2.resize(HRimage, dsize=(round(w/4), round(h/4)))
         # 이거 사이즈가 맞아야 할듯? 흠... 일단 돌려봅시다.
 
-        HRimage = ToTensorV2()(image=HRimage)
-        LRimage = ToTensorV2()(image=LRimage)
-
+        HRimage = ToTensorV2()(image=HRimage)['image'].to(CFG.device, dtype=torch.float)
+        LRimage = ToTensorV2()(image=LRimage)['image'].to(CFG.device, dtype=torch.float)
+    
         return HRimage, LRimage
-
-# input = torch.randn(1,3,256,256)
-# Model = Generator()
-# output = Model(input)
-
-# print(f'input size: {input.size()}')
-# print(f'output size: {output.size()}')
 
 def train_one_epoch(G_model, D_model, G_optimizer, D_optimizer, dataloader, epoch):
     G_model.train()
@@ -169,69 +173,86 @@ def train_one_epoch(G_model, D_model, G_optimizer, D_optimizer, dataloader, epoc
     
     mseLoss = CFG.mseLoss
     bceLoss = CFG.bceLoss
-    
+
     bar = tqdm(enumerate(dataloader), total=len(dataloader))
 
     for step, data in bar:
-        # images = data[0].to(device, dtype=torch.float)
-        # labels = data[1].to(device, dtype=torch.long)
-        HRimages = data[0].to(CFG.device)
-        LRimages = data[1].to(CFG.device)
-
-        batch_size = HRimages.size(0)
+        HRimages = data[0]
+        LRimages = data[1]
 
         # Discriminator Loss part
         G_outputs = G_model(LRimages).to(CFG.device, dtype=torch.float)
         
+        # with torch.no_grad():    
         fakeLabel = D_model(G_outputs).to(CFG.device, dtype=torch.float)
         realLabel = D_model(HRimages).to(CFG.device, dtype=torch.float)
 
-        d1Loss = torch.mean(mseLoss(fakeLabel, torch.zeros_like(fakeLabel, dtype=torch.float)))
-        d2Loss = torch.mean(mseLoss(realLabel, torch.ones_like(realLabel, dtype=torch.float)))
+        
+        d1Loss = torch.mean(bceLoss(fakeLabel, torch.zeros_like(fakeLabel, dtype=torch.float)))
+        d2Loss = torch.mean(bceLoss(realLabel, torch.ones_like(realLabel, dtype=torch.float)))
         dLoss = d1Loss+d2Loss
-        # 여기에 optimizer도 들어가야함 -> 분석하기
+        # dLoss = torch.sum(d1Loss+d2Loss)
+        
         D_optimizer.zero_grad()
         d2Loss.backward()
         d1Loss.backward(retain_graph=True)
         D_optimizer.step()
         # D_optimizer 이것들을 
-
+        
+        print('KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK')
+        G_optimizer.zero_grad()
         # Generator Loss part
-        g1Loss = mseLoss(fakeLabel, torch.ones_like(fakeLabel))
-        g2Loss = mseLoss(resnetModel(G_outputs), resnetModel(HRimages))
-        g3Loss = mseLoss(G_outputs, HRimages)
+        g1Loss = bceLoss(fakeLabel, torch.ones_like(fakeLabel)).clone()
+        g2Loss = mseLoss(vggModel(G_outputs), vggModel(HRimages)).clone()
+        g3Loss = mseLoss(G_outputs, HRimages).clone()
+        # with torch.autograd.set_detect_anomaly(True):
+
         gLoss = g1Loss + g2Loss + g3Loss
+        # gLoss = torch.sum(g1Loss,g2Loss,g3Loss)
+
+        print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
+        
         gLoss.backward()
-
-
-        loss.backward()
-        optimizer.step()
-        optimizer.zero_grad()
-
-        running_loss += loss.item()*batch_size
-        dataset_size += batch_size
+        G_optimizer.step()
+        print('BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB')
+        
+        running_loss += ((gLoss.item()+dLoss.item())/2)*CFG.batch_size
+        dataset_size += CFG.batch_size
         epoch_loss = running_loss/dataset_size
 
         bar.set_postfix(EPOCH=epoch, TRAIN_LOSS=epoch_loss)
 
-
-
-
-
 if __name__ == "__main__":
-    # os.environ['KMP_DUPLICATE_LIB_OK']= True
 
     G_Model = Generator().to(CFG.device)
     D_Model = Discriminator().to(CFG.device)
     
     G_optimizer = optim.Adam(G_Model.parameters(), lr=CFG.lr)
     D_optimizer = optim.Adam(D_Model.parameters(), lr=CFG.lr)
-    # optimizer Adam인지 논문확인
     
     train_dataset = ImageDataset(CFG.dataPath)
     train_loader = DataLoader(train_dataset, shuffle=True, batch_size=CFG.batch_size)
+    
+    for epoch in tqdm(range(CFG.epochs)):
+        train_one_epoch(G_Model, D_Model, G_optimizer, D_optimizer, train_loader, epoch)
+    
     
     bar = tqdm(enumerate(train_loader), total=len(train_loader))
     
     for step, data in bar:
         print(data)
+
+# input = torch.randn(1,3,256,256)
+# Model = Generator()
+# output = Model(input)
+
+# print(f'input size: {input.size()}')
+# print(f'output size: {output.size()}')
+
+
+# input = torch.randn(1,3,256,256)
+# Model = Discriminator()
+# output = Model(input)
+
+# print(f'input size: {input.size()}')
+# print(f'output size: {output.size()}')

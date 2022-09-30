@@ -1,7 +1,12 @@
 import torch
+import torchvision
 
-k = torch.randn((1,3,244,244))
+# k = torch.randn((1,3,244,244))
 
-m = torch.ones(k)
+# m = torch.ones(k)
 
-print(m.size())
+# print(m.size())
+
+model = torchvision.models.vgg19_bn(pretrained=True)
+
+print(model.features[:7])
