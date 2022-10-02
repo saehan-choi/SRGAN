@@ -1,22 +1,19 @@
 import os
+import cv2
 
 import torch
 import torch.nn as nn
-
-from torch.utils.data import Dataset, DataLoader
-
-import cv2
-
-import albumentations as A
-from albumentations.pytorch.transforms import ToTensorV2
-
 import torch.optim as optim
 
+from torch.utils.data import Dataset, DataLoader
+from torchvision.models import vgg19_bn
+
+from albumentations.pytorch.transforms import ToTensorV2
 from tqdm import tqdm
 
-import timm
 
-import torchvision
+
+
 
 # reference
 # https://medium.com/analytics-vidhya/super-resolution-gan-srgan-5e10438aec0c
@@ -30,28 +27,20 @@ class CFG:
     
     # srgan recommand lr 0.001
     lr = 1e-4
-    batch_size = 1
+    batch_size = 32
     
     mseLoss = nn.MSELoss()
-    # mse로 한번 해봅시다
     bceLoss = nn.BCELoss()
     epochs = 100
-    
-def vggModel(input, resnet=False):
-    if resnet:
-        model = timm.create_model('resnet50', pretrained=True)
-        model.global_pool = nn.Identity()
-        model.fc = nn.Identity()
-    
-    else:
-        model = torchvision.models.vgg19_bn(pretrained=True).to(CFG.device, dtype=torch.float)
-        model = model.features[:7]
-    
-    return model(input)
 
-    # print(model(torch.randn(1,3,256,256)).size())
-    # print(model)
+class FeatureExtractor(nn.Module):
+    def __init__(self):
+        super(FeatureExtractor, self).__init__()
+        vgg19_model = vgg19_bn(pretrained=True)
+        self.feature_extractor = nn.Sequential(*list(vgg19_model.features[:6])).to(CFG.device, dtype=torch.float)
 
+    def forward(self, img):
+        return self.feature_extractor(img)
 
 class Generator(nn.Module):
     def __init__(self):
@@ -157,7 +146,6 @@ class ImageDataset(Dataset):
         HRimage = cv2.resize(HRimage, dsize=(40, 40))
         h, w = HRimage.shape[:2]
         LRimage = cv2.resize(HRimage, dsize=(round(w/4), round(h/4)))
-        # 이거 사이즈가 맞아야 할듯? 흠... 일단 돌려봅시다.
 
         HRimage = ToTensorV2()(image=HRimage)['image'].to(CFG.device, dtype=torch.float)
         LRimage = ToTensorV2()(image=LRimage)['image'].to(CFG.device, dtype=torch.float)
@@ -182,39 +170,29 @@ def train_one_epoch(G_model, D_model, G_optimizer, D_optimizer, dataloader, epoc
 
         # Discriminator Loss part
         G_outputs = G_model(LRimages).to(CFG.device, dtype=torch.float)
-        
-        # with torch.no_grad():    
-        fakeLabel = D_model(G_outputs).to(CFG.device, dtype=torch.float)
+        fakeLabel = D_model(G_outputs.detach()).to(CFG.device, dtype=torch.float)
         realLabel = D_model(HRimages).to(CFG.device, dtype=torch.float)
 
-        
         d1Loss = torch.mean(bceLoss(fakeLabel, torch.zeros_like(fakeLabel, dtype=torch.float)))
         d2Loss = torch.mean(bceLoss(realLabel, torch.ones_like(realLabel, dtype=torch.float)))
         dLoss = d1Loss+d2Loss
-        # dLoss = torch.sum(d1Loss+d2Loss)
         
         D_optimizer.zero_grad()
         d2Loss.backward()
         d1Loss.backward(retain_graph=True)
         D_optimizer.step()
-        # D_optimizer 이것들을 
         
-        print('KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK')
         G_optimizer.zero_grad()
+        
         # Generator Loss part
-        g1Loss = bceLoss(fakeLabel, torch.ones_like(fakeLabel)).clone()
-        g2Loss = mseLoss(vggModel(G_outputs), vggModel(HRimages)).clone()
-        g3Loss = mseLoss(G_outputs, HRimages).clone()
-        # with torch.autograd.set_detect_anomaly(True):
+        g1Loss = bceLoss(fakeLabel.detach(), torch.ones_like(fakeLabel))
+        g2Loss = mseLoss(feature_extractor(G_outputs).detach(), feature_extractor(HRimages).detach())
+        g3Loss = mseLoss(G_outputs, HRimages)
 
         gLoss = g1Loss + g2Loss + g3Loss
-        # gLoss = torch.sum(g1Loss,g2Loss,g3Loss)
-
-        print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
         
         gLoss.backward()
         G_optimizer.step()
-        print('BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB')
         
         running_loss += ((gLoss.item()+dLoss.item())/2)*CFG.batch_size
         dataset_size += CFG.batch_size
@@ -232,11 +210,13 @@ if __name__ == "__main__":
     
     train_dataset = ImageDataset(CFG.dataPath)
     train_loader = DataLoader(train_dataset, shuffle=True, batch_size=CFG.batch_size)
-    
+
+    feature_extractor = FeatureExtractor()
+    feature_extractor.eval()
+
     for epoch in tqdm(range(CFG.epochs)):
         train_one_epoch(G_Model, D_Model, G_optimizer, D_optimizer, train_loader, epoch)
-    
-    
+
     bar = tqdm(enumerate(train_loader), total=len(train_loader))
     
     for step, data in bar:
