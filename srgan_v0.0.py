@@ -190,7 +190,6 @@ def train_one_epoch(G_model, D_model, G_optimizer, D_optimizer, dataloader, epoc
         
         d1Loss = torch.mean(bceLoss(fakeLabel, torch.zeros_like(fakeLabel, dtype=torch.float)))
         d2Loss = torch.mean(bceLoss(realLabel, torch.ones_like(realLabel, dtype=torch.float)))
-        dLoss = d1Loss+d2Loss
         # dLoss = torch.sum(d1Loss+d2Loss)
         
         D_optimizer.zero_grad()
@@ -200,7 +199,7 @@ def train_one_epoch(G_model, D_model, G_optimizer, D_optimizer, dataloader, epoc
         # D_optimizer 이것들을 
         
         print('KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK')
-        G_optimizer.zero_grad()
+        
         # Generator Loss part
         g1Loss = bceLoss(fakeLabel, torch.ones_like(fakeLabel)).clone()
         g2Loss = mseLoss(vggModel(G_outputs), vggModel(HRimages)).clone()
@@ -209,14 +208,14 @@ def train_one_epoch(G_model, D_model, G_optimizer, D_optimizer, dataloader, epoc
 
         gLoss = g1Loss + g2Loss + g3Loss
         # gLoss = torch.sum(g1Loss,g2Loss,g3Loss)
-
-        print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
-        
+        G_optimizer.zero_grad()
         gLoss.backward()
         G_optimizer.step()
         print('BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB')
         
-        running_loss += ((gLoss.item()+dLoss.item())/2)*CFG.batch_size
+        running_loss += ((gLoss.item())*CFG.batch_size)
+        # 여기에 d loss도 추가하기
+        
         dataset_size += CFG.batch_size
         epoch_loss = running_loss/dataset_size
 

@@ -1,12 +1,19 @@
 import torch
-import torchvision
+import torch.nn as nn
 
-# k = torch.randn((1,3,244,244))
+mse = nn.MSELoss()
 
-# m = torch.ones(k)
+def PSNR(HRimage, LRimage):
+    # peak signal to noise ratio r -> maximam value
+    r = 255
+    mseloss = mse(HRimage, LRimage)
+    psnr = 20*torch.log10(r/torch.sqrt(mseloss))
+    print(psnr)
+    pass
 
-# print(m.size())
 
-model = torchvision.models.vgg19_bn(pretrained=True)
 
-print(model.features[:7])
+HRimage = torch.randn(1,3,256,256)
+LRimage = torch.randn(1,3,256,256)
+
+PSNR(HRimage, LRimage)
