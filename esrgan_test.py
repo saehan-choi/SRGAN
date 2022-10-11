@@ -18,10 +18,13 @@ class CFG:
     valdata = './data/val/'
     device = 'cuda'
     
-    # srgan recommand lr 0.001
-    lr = 1e-4
+    lr = 2e-4
     batch_size = 1
-
+    beta = 0.2
+    
+    eta = 1e-2
+    Lambda = 5e-3
+    
     epochs = 100
 
     HR_patch_size = 160
@@ -49,15 +52,8 @@ class DenseBlock(nn.Module):
         return self.conv5(x5)
 
 
-# model = DenseBlock()
-# data = torch.randn(1,64,256,256)
-# result = model(data)
-# print(result.size())
-
 class RRDB(nn.Module):
-    # Residual in Residual Dense Block
-    # beta값 조절하기
-    def __init__(self, beta=0.5):
+    def __init__(self, beta=CFG.beta):
         super(RRDB, self).__init__()
         
         self.DenseBlock = DenseBlock()
@@ -71,10 +67,6 @@ class RRDB(nn.Module):
 
         return x5
 
-# model = RRDB()
-# data = torch.randn(1,64,256,256)
-# result = model(data)
-# print(result.size())
 
 class Generator(nn.Module):
     
@@ -120,7 +112,6 @@ class Discriminator(nn.Module):
         self.conv8 = self.CNNblock(in_channels=512, out_channels=512, kernel_size=3, stride=2, padding=1, bias=False)
         
         self.leakyrelu = nn.LeakyReLU()
-        # self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         x = self.conv1(x)
@@ -147,15 +138,10 @@ class Discriminator(nn.Module):
         x = self.leakyrelu(model(x))
         model = nn.Linear(in_features=out_features, out_features=1).to(CFG.device)
         x = model(x)
-        
-        # 여기서 sigmoid 안들어감
+
         return x
 
     
-# model = Generator()
-# data = torch.randn(1,3,256,256)
-# result = model(data)
-# print(result.size())
 
 class FeatureExtractor(nn.Module):
     def __init__(self):
@@ -220,25 +206,29 @@ def set_seed(random_seed):
     # np.random.seed(random_seed)
 
 def DiscriminatorLoss(fakeLabel, realLabel):
-    bceLoss = nn.BCELoss()
+    bceLoss = nn.BCEWithLogitsLoss()
     sigmoid = nn.Sigmoid()
-    
-    # print(sigmoid(fakeLabel-realLabel).squeeze())
-    # print(torch.tensor(0).to(CFG.device, dtype=torch.float))
-    d1Loss = bceLoss(sigmoid(fakeLabel-realLabel).squeeze(), torch.tensor(0).to(CFG.device, dtype=torch.float))
-    d2Loss = bceLoss(sigmoid(realLabel-fakeLabel).squeeze(), torch.tensor(1).to(CFG.device, dtype=torch.float))
+
+    d1Loss = bceLoss(realLabel-fakeLabel, torch.ones_like(realLabel, dtype=torch.float))
+    d2Loss = bceLoss(fakeLabel-realLabel, torch.zeros_like(fakeLabel, dtype=torch.float))
     
     dLoss = (d1Loss+d2Loss)/2
+    
     return dLoss
     
 def GeneratorLoss(fakeLabel, G_outputs, HRimages):
     mseLoss = nn.MSELoss()
-    bceLoss = nn.BCELoss()
-    g1Loss = bceLoss(fakeLabel.detach(), torch.ones_like(fakeLabel))
-    g2Loss = mseLoss(feature_extractor(G_outputs).detach(), feature_extractor(HRimages).detach())
-    g3Loss = mseLoss(G_outputs, HRimages)
+    bceLoss = nn.BCEWithLogitsLoss()
+    
+    g1Loss = mseLoss(feature_extractor(G_outputs).detach(), feature_extractor(HRimages).detach())
+    
+    g2Loss = CFG.Lambda * bceLoss(fakeLabel.detach(), torch.ones_like(fakeLabel))
 
-    return g1Loss, g2Loss, g3Loss
+    g3Loss = CFG.eta * mseLoss(G_outputs, HRimages)
+    
+    gLoss = (g1Loss+g2Loss+g3Loss)/3
+
+    return gLoss
     
 def train_one_epoch(G_model, D_model, G_optimizer, D_optimizer, dataloader, epoch):
     G_model.train()
@@ -258,23 +248,18 @@ def train_one_epoch(G_model, D_model, G_optimizer, D_optimizer, dataloader, epoc
         G_outputs = G_model(LRimages)
         fakeLabel = D_model(G_outputs.detach())
         realLabel = D_model(HRimages)
-        
+
         dLoss = DiscriminatorLoss(fakeLabel, realLabel)
         
         D_optimizer.zero_grad()
-        
-        # d1Loss.backward(retain_graph=True)
-        # d2Loss.backward()
-        dLoss.backward()
+        dLoss.backward(retain_graph=True)
         
         D_optimizer.step()
 
         G_optimizer.zero_grad()
 
         # Generator Loss part
-        g1Loss, g2Loss, g3Loss = GeneratorLoss(fakeLabel, G_outputs, HRimages)
-
-        gLoss = (g1Loss + g2Loss + g3Loss)/3
+        gLoss = GeneratorLoss(fakeLabel, G_outputs, HRimages)
         
         gLoss.backward()
         G_optimizer.step()
@@ -285,44 +270,35 @@ def train_one_epoch(G_model, D_model, G_optimizer, D_optimizer, dataloader, epoc
 
         bar.set_postfix(EPOCH=epoch, TRAIN_LOSS=epoch_loss, PSNR=PSNR(HRimages, G_outputs).item())
 
-# def val_one_epoch(G_model, D_model, dataloader, epoch):
+def val_one_epoch(G_model, D_model, dataloader, epoch):
     
-#     G_model.eval()
-#     D_model.eval()
-#     with torch.no_grad():
-#         dataset_size = 0
-#         running_loss = 0
+    G_model.eval()
+    D_model.eval()
+    with torch.no_grad():
+        dataset_size = 0
+        running_loss = 0
         
-#         mseLoss = CFG.mseLoss
-#         bceLoss = CFG.bceLoss
+        bar = tqdm(enumerate(dataloader), total=len(dataloader))
 
-#         bar = tqdm(enumerate(dataloader), total=len(dataloader))
+        for step, data in bar:
+            HRimages = data[0]
+            LRimages = data[1]
 
-#         for step, data in bar:
-#             HRimages = data[0]
-#             LRimages = data[1]
+            # Discriminator Loss part
+            G_outputs = G_model(LRimages)
+            fakeLabel = D_model(G_outputs.detach())
+            realLabel = D_model(HRimages)
 
-#             # Discriminator Loss part
-#             G_outputs = G_model(LRimages)
-#             fakeLabel = D_model(G_outputs.detach())
-#             realLabel = D_model(HRimages)
+            dLoss = DiscriminatorLoss(fakeLabel, realLabel)
 
-#             d1Loss = torch.mean(bceLoss(fakeLabel, torch.zeros_like(fakeLabel, dtype=torch.float)))
-#             d2Loss = torch.mean(bceLoss(realLabel, torch.ones_like(realLabel, dtype=torch.float)))
-#             dLoss = d1Loss+d2Loss
-
-#             # Generator Loss part
-#             g1Loss = bceLoss(fakeLabel.detach(), torch.ones_like(fakeLabel))
-#             g2Loss = mseLoss(feature_extractor(G_outputs).detach(), feature_extractor(HRimages).detach())
-#             g3Loss = mseLoss(G_outputs, HRimages)
-
-#             gLoss = g1Loss + g2Loss + g3Loss
+            # Generator Loss part
+            gLoss = GeneratorLoss(fakeLabel, G_outputs, HRimages)
                         
-#             running_loss += ((gLoss.item()+dLoss.item())/2)*CFG.batch_size
-#             dataset_size += CFG.batch_size
-#             epoch_loss = running_loss/dataset_size
+            running_loss += ((gLoss.item()+dLoss.item())/2)*CFG.batch_size
+            dataset_size += CFG.batch_size
+            epoch_loss = running_loss/dataset_size
 
-#             bar.set_postfix(EPOCH=epoch, VAL_LOSS=epoch_loss, PSNR=PSNR(HRimages, G_outputs).item())
+            bar.set_postfix(EPOCH=epoch, VAL_LOSS=epoch_loss, PSNR=PSNR(HRimages, G_outputs).item())
 
 if __name__ == "__main__":
     set_seed(42)
@@ -347,5 +323,5 @@ if __name__ == "__main__":
         print('\n')
         val_one_epoch(G_Model, D_Model, val_loader, epoch)
         print('\n')
-        torch.save(G_Model.state_dict(), CFG.weights_path+f'Generator_epochs_{epoch}.pt')
+        torch.save(G_Model.state_dict(), CFG.weights_path+f'ESRGAN_epoch_{epoch}.pt')
 
