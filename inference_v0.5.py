@@ -21,7 +21,8 @@ import time
 
 class CFG:
     
-    valPath = './data/val/'
+    # valPath = './data/val/'
+    valPath = './testdata/'    
     resultPath = './results/'
     device = 'cuda'
 
