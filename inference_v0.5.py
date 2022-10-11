@@ -24,7 +24,7 @@ class CFG:
     valPath = './data/val/'
     resultPath = './results/'
     device = 'cuda'
-    
+
     # srgan recommand lr 0.001
     lr = 1e-4
     batch_size = 64
@@ -33,10 +33,10 @@ class CFG:
     bceLoss = nn.BCELoss()
     epochs = 100
     
-    HR_patch_size = 64
-    LR_patch_size = 16
+    HR_patch_size = 160
+    LR_patch_size = 40
 
-    weights_path = './weights/Generator_epochs_6.ptGenerator_epochs_41.pt'
+    weights_path = './weights/Generator_epochs_6.ptGenerator_epochs_99.pt'
 
 class Generator(nn.Module):
     def __init__(self):
@@ -107,8 +107,8 @@ def set_seed(random_seed):
 
 def resize_img(path):
     HRimg = cv2.imread(path)
-    HRimg = cv2.resize(HRimg, (100,100))
-    LRimg = cv2.resize(HRimg, (25,25))
+    HRimg = cv2.resize(HRimg, (160, 160))
+    LRimg = cv2.resize(HRimg, (40, 40))
     return HRimg, LRimg
 
 if __name__ == "__main__":
@@ -126,6 +126,7 @@ if __name__ == "__main__":
             
             path = CFG.valPath+l
             HRimg, LRimg = resize_img(path)
+        
             # print(HRimg.shape)
             cv2.imwrite(CFG.resultPath+l.replace('.', '_LR.'), LRimg)
             cv2.imwrite(CFG.resultPath+l.replace('.', '_HR.'), HRimg)

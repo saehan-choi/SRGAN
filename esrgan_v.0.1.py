@@ -23,15 +23,15 @@ class CFG:
     device = 'cuda'
     
     # srgan recommand lr 0.001
-    lr = 1e-4
-    batch_size = 64
+    lr = 3e-4
+    batch_size = 1
         
     mseLoss = nn.MSELoss()
     bceLoss = nn.BCELoss()
     epochs = 100
     
-    HR_patch_size = 64
-    LR_patch_size = 16
+    HR_patch_size = 256
+    LR_patch_size = 64
 
     weights_path = './weights/'
 
@@ -146,9 +146,6 @@ class ImageDataset(Dataset):
             for l in lrPatchs:
                 self.lrPatchs.append(l)                
 
-        cv2.imwrite('hr10005.png', self.hrPatchs[60312])
-        cv2.imwrite('lr10005.png', self.lrPatchs[60312])
-
 
     def __len__(self):
         return len(self.hrPatchs)
@@ -164,7 +161,7 @@ class ImageDataset(Dataset):
         return HRimage, LRimage
 
     def make_patch(self, HRpath, LRpath):
-        
+
         # HR part
         hr_img = cv2.imread(HRpath)
         h, w = hr_img.shape[:2]
@@ -181,10 +178,18 @@ class ImageDataset(Dataset):
         for i in range(0, h, CFG.LR_patch_size):
             for j in range(0, w, CFG.LR_patch_size):
                 patch = lr_img[i:i+CFG.LR_patch_size, j:j+CFG.LR_patch_size, :]
-                cv2.imwrite(f'./test/lr/{i+CFG.LR_patch_size}_{j+CFG.LR_patch_size}.png', patch)
                 lr_patch.append(patch)
         
         return hr_patch, lr_patch
+    
+def PSNR(HRimage, LRimage):
+    # peak signal to noise ratio r -> maximam value
+    r = 255
+    mse = nn.MSELoss()
+    mseloss = mse(HRimage, LRimage)
+    psnr = 20*torch.log10(r/torch.sqrt(mseloss))
+    
+    return psnr
 
 def set_seed(random_seed):
     torch.manual_seed(random_seed)
@@ -204,9 +209,9 @@ def train_one_epoch(G_model, D_model, G_optimizer, D_optimizer, dataloader, epoc
     
     mseLoss = CFG.mseLoss
     bceLoss = CFG.bceLoss
-
+    loss_arr = []
+    
     bar = tqdm(enumerate(dataloader), total=len(dataloader))
-
     for step, data in bar:
         HRimages = data[0]
         LRimages = data[1]
@@ -226,7 +231,6 @@ def train_one_epoch(G_model, D_model, G_optimizer, D_optimizer, dataloader, epoc
         D_optimizer.step()
         
         G_optimizer.zero_grad()
-        
         # Generator Loss part
         g1Loss = bceLoss(fakeLabel.detach(), torch.ones_like(fakeLabel))
         g2Loss = mseLoss(feature_extractor(G_outputs).detach(), feature_extractor(HRimages).detach())
@@ -240,13 +244,15 @@ def train_one_epoch(G_model, D_model, G_optimizer, D_optimizer, dataloader, epoc
         running_loss += ((gLoss.item()+dLoss.item())/2)*CFG.batch_size
         dataset_size += CFG.batch_size
         epoch_loss = running_loss/dataset_size
-
-        bar.set_postfix(EPOCH=epoch, TRAIN_LOSS=epoch_loss)
+        if step%1000 == 0:
+            torch.save(G_Model.state_dict(), CFG.weights_path+f'Generator_epochs_load_6epochs_{epoch}_step_{step}.pt')
+        bar.set_postfix(EPOCH=epoch, TRAIN_LOSS=epoch_loss, PSNR=PSNR(HRimages, G_outputs).item())
 
 if __name__ == "__main__":
     set_seed(42)
-
+    # Generator_epochs_load_6epochs_0_step_13000.pt
     G_Model = Generator().to(CFG.device)
+    # G_Model.load_state_dict(torch.load(CFG.weights_path+'Generator_epochs_0_step_6000.pt'))
     D_Model = Discriminator().to(CFG.device)
     
     G_optimizer = optim.Adam(G_Model.parameters(), lr=CFG.lr)
@@ -260,8 +266,7 @@ if __name__ == "__main__":
 
     for epoch in tqdm(range(CFG.epochs)):
         train_one_epoch(G_Model, D_Model, G_optimizer, D_optimizer, train_loader, epoch)
-        torch.save(G_Model.state_dict(), CFG.weights_path+f'Generator_epochs_{epoch}.pt')
-    bar = tqdm(enumerate(train_loader), total=len(train_loader))
+    # bar = tqdm(enumerate(train_loader), total=len(train_loader))
     
     # for step, data in bar:
     #     print(data)

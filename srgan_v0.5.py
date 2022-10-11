@@ -12,6 +12,8 @@ from torchvision.models import vgg19_bn
 from albumentations.pytorch.transforms import ToTensorV2
 from tqdm import tqdm
 
+from sklearn.model_selection import train_test_split
+
 # reference
 # https://medium.com/analytics-vidhya/super-resolution-gan-srgan-5e10438aec0c
 # https://www.kaggle.com/code/balraj98/single-image-super-resolution-gan-srgan-pytorch
@@ -19,21 +21,23 @@ from tqdm import tqdm
 
 class CFG:
     
-    dataPath = './data/train/hr/'
+    traindata = './data/train/'
+    valdata = './data/val/'
     device = 'cuda'
     
     # srgan recommand lr 0.001
     lr = 1e-4
-    batch_size = 64
+    batch_size = 2
+
         
     mseLoss = nn.MSELoss()
     bceLoss = nn.BCELoss()
     epochs = 100
-    
-    HR_patch_size = 64
-    LR_patch_size = 16
 
-    weights_path = './weights/'
+    HR_patch_size = 160
+    LR_patch_size = 40
+
+    weights_path = './weights/Generator_epochs_6.pt'
 
 class FeatureExtractor(nn.Module):
     def __init__(self):
@@ -66,7 +70,7 @@ class Generator(nn.Module):
         block2 = self.residual_block(block2)
         block3 = self.third_block(block2, block1)
         block4 = self.fourth_block(block3)
-        
+
         return block4
         
     def first_block(self, x):
@@ -82,7 +86,6 @@ class Generator(nn.Module):
     def fourth_block(self, x):
         x = self.prelu(self.ps(self.conv3(x)))
         x = self.prelu(self.ps(self.conv3(x)))
-        
         # ps가 두번들어가면 4배
         # Rearranges elements in a tensor of shape (B, C*r^2,H,W) -> (B, C, H*r, W*r)
         x = self.conv4(x)
@@ -133,58 +136,53 @@ class Discriminator(nn.Module):
 
 class ImageDataset(Dataset):
     def __init__(self, dataPath):
-        self.hrPath = dataPath
-        self.lrPath = dataPath.replace('hr', 'lr')
-        self.hrPatchs = []
-        self.lrPatchs = []
-        for path in tqdm(os.listdir(self.hrPath)):
-            hrPath = self.hrPath+path
-            lrPath = self.lrPath+path
-            hrPatchs, lrPatchs = self.make_patch(hrPath, lrPath)
-            for h in hrPatchs:
-                self.hrPatchs.append(h)
-            for l in lrPatchs:
-                self.lrPatchs.append(l)                
 
-        cv2.imwrite('hr10005.png', self.hrPatchs[60312])
-        cv2.imwrite('lr10005.png', self.lrPatchs[60312])
+        self.dataPath = dataPath
+        self.dataList = []
+        
+        self.cnt = 0
+        for path in os.listdir(self.dataPath):
+            self.dataList.append(self.dataPath+path)
 
-
+        for data in self.dataList:
+            HRimage = cv2.imread(data, cv2.COLOR_BGR2RGB)
+            h, w = HRimage.shape[:2]
+            
+            if h < CFG.HR_patch_size and w < CFG.HR_patch_size:
+                pass
+            else:
+                self.cnt+=1
+            
     def __len__(self):
-        return len(self.hrPatchs)
+        return self.cnt
 
     def __getitem__(self, index):
+        
+        HRimage = cv2.imread(self.dataList[index], cv2.COLOR_BGR2RGB)
+        HRimage = cv2.resize(HRimage, dsize=(CFG.HR_patch_size, CFG.HR_patch_size))
+        h, w = HRimage.shape[:2]
+        LRimage = cv2.resize(HRimage, dsize=(round(w/4), round(h/4)))
 
-        HRimage = self.hrPatchs[index]
-        LRimage = self.lrPatchs[index]
-
+        # 이거 사이즈가 맞아야 할듯? 흠... 일단 돌려봅시다.
+        
+        # cv2.imshow('hh', HRimage)
+        # cv2.waitKey(0)
+        # cv2.imshow('kk', LRimage)
+        # cv2.waitKey(0)
+        
         HRimage = ToTensorV2()(image=HRimage)['image'].to(CFG.device, dtype=torch.float)
         LRimage = ToTensorV2()(image=LRimage)['image'].to(CFG.device, dtype=torch.float)
-    
+        
+
         return HRimage, LRimage
 
-    def make_patch(self, HRpath, LRpath):
-        
-        # HR part
-        hr_img = cv2.imread(HRpath)
-        h, w = hr_img.shape[:2]
-        hr_patch = []
-        for i in range(0, h, CFG.HR_patch_size):
-            for j in range(0, w, CFG.HR_patch_size):
-                patch = hr_img[i:i+CFG.HR_patch_size, j:j+CFG.HR_patch_size, :]
-                hr_patch.append(patch)
-
-        # LR part
-        lr_img = cv2.imread(LRpath)
-        h, w = lr_img.shape[:2]
-        lr_patch = []
-        for i in range(0, h, CFG.LR_patch_size):
-            for j in range(0, w, CFG.LR_patch_size):
-                patch = lr_img[i:i+CFG.LR_patch_size, j:j+CFG.LR_patch_size, :]
-                cv2.imwrite(f'./test/lr/{i+CFG.LR_patch_size}_{j+CFG.LR_patch_size}.png', patch)
-                lr_patch.append(patch)
-        
-        return hr_patch, lr_patch
+def PSNR(HRimage, LRimage):
+    # peak signal to noise ratio r -> maximam value
+    r = 255
+    mse = nn.MSELoss()
+    mseloss = mse(HRimage, LRimage)
+    psnr = 20*torch.log10(r/torch.sqrt(mseloss))
+    return psnr
 
 def set_seed(random_seed):
     torch.manual_seed(random_seed)
@@ -212,21 +210,26 @@ def train_one_epoch(G_model, D_model, G_optimizer, D_optimizer, dataloader, epoc
         LRimages = data[1]
 
         # Discriminator Loss part
-        G_outputs = G_model(LRimages).to(CFG.device, dtype=torch.float)
-        fakeLabel = D_model(G_outputs.detach()).to(CFG.device, dtype=torch.float)
-        realLabel = D_model(HRimages).to(CFG.device, dtype=torch.float)
-
+        G_outputs = G_model(LRimages)
+        fakeLabel = D_model(G_outputs.detach())
+        realLabel = D_model(HRimages)
+        
+        ###############################
+        # CFG device 빼도되는지 보기
+        ###############################
+        
+        
         d1Loss = torch.mean(bceLoss(fakeLabel, torch.zeros_like(fakeLabel, dtype=torch.float)))
         d2Loss = torch.mean(bceLoss(realLabel, torch.ones_like(realLabel, dtype=torch.float)))
         dLoss = d1Loss+d2Loss
-        
+
         D_optimizer.zero_grad()
         d2Loss.backward()
         d1Loss.backward(retain_graph=True)
         D_optimizer.step()
-        
+
         G_optimizer.zero_grad()
-        
+
         # Generator Loss part
         g1Loss = bceLoss(fakeLabel.detach(), torch.ones_like(fakeLabel))
         g2Loss = mseLoss(feature_extractor(G_outputs).detach(), feature_extractor(HRimages).detach())
@@ -241,42 +244,70 @@ def train_one_epoch(G_model, D_model, G_optimizer, D_optimizer, dataloader, epoc
         dataset_size += CFG.batch_size
         epoch_loss = running_loss/dataset_size
 
-        bar.set_postfix(EPOCH=epoch, TRAIN_LOSS=epoch_loss)
+        bar.set_postfix(EPOCH=epoch, TRAIN_LOSS=epoch_loss, PSNR=PSNR(HRimages, G_outputs).item())
+
+def val_one_epoch(G_model, D_model, dataloader, epoch):
+    
+    G_model.eval()
+    D_model.eval()
+    with torch.no_grad():
+        dataset_size = 0
+        running_loss = 0
+        
+        mseLoss = CFG.mseLoss
+        bceLoss = CFG.bceLoss
+
+        bar = tqdm(enumerate(dataloader), total=len(dataloader))
+
+        for step, data in bar:
+            HRimages = data[0]
+            LRimages = data[1]
+
+            # Discriminator Loss part
+            G_outputs = G_model(LRimages)
+            fakeLabel = D_model(G_outputs.detach())
+            realLabel = D_model(HRimages)
+
+            d1Loss = torch.mean(bceLoss(fakeLabel, torch.zeros_like(fakeLabel, dtype=torch.float)))
+            d2Loss = torch.mean(bceLoss(realLabel, torch.ones_like(realLabel, dtype=torch.float)))
+            dLoss = d1Loss+d2Loss
+
+            # Generator Loss part
+            g1Loss = bceLoss(fakeLabel.detach(), torch.ones_like(fakeLabel))
+            g2Loss = mseLoss(feature_extractor(G_outputs).detach(), feature_extractor(HRimages).detach())
+            g3Loss = mseLoss(G_outputs, HRimages)
+
+            gLoss = g1Loss + g2Loss + g3Loss
+                        
+            running_loss += ((gLoss.item()+dLoss.item())/2)*CFG.batch_size
+            dataset_size += CFG.batch_size
+            epoch_loss = running_loss/dataset_size
+
+            bar.set_postfix(EPOCH=epoch, VAL_LOSS=epoch_loss, PSNR=PSNR(HRimages, G_outputs).item())
 
 if __name__ == "__main__":
     set_seed(42)
 
     G_Model = Generator().to(CFG.device)
+    G_Model.load_state_dict(torch.load(CFG.weights_path))
     D_Model = Discriminator().to(CFG.device)
     
     G_optimizer = optim.Adam(G_Model.parameters(), lr=CFG.lr)
     D_optimizer = optim.Adam(D_Model.parameters(), lr=CFG.lr)
-    
-    train_dataset = ImageDataset(CFG.dataPath)
+
+    train_dataset = ImageDataset(CFG.traindata)
     train_loader = DataLoader(train_dataset, shuffle=True, batch_size=CFG.batch_size)
 
+    val_dataset = ImageDataset(CFG.valdata)
+    val_loader = DataLoader(val_dataset, shuffle=True, batch_size=CFG.batch_size)
+    
     feature_extractor = FeatureExtractor()
     feature_extractor.eval()
 
-    for epoch in tqdm(range(CFG.epochs)):
+    for epoch in range(CFG.epochs):
         train_one_epoch(G_Model, D_Model, G_optimizer, D_optimizer, train_loader, epoch)
+        print('\n')
+        val_one_epoch(G_Model, D_Model, val_loader, epoch)
+        print('\n')
         torch.save(G_Model.state_dict(), CFG.weights_path+f'Generator_epochs_{epoch}.pt')
-    bar = tqdm(enumerate(train_loader), total=len(train_loader))
-    
-    # for step, data in bar:
-    #     print(data)
 
-# input = torch.randn(1,3,256,256)
-# Model = Generator()
-# output = Model(input)
-
-# print(f'input size: {input.size()}')
-# print(f'output size: {output.size()}')
-
-
-# input = torch.randn(1,3,256,256)
-# Model = Discriminator()
-# output = Model(input)
-
-# print(f'input size: {input.size()}')
-# print(f'output size: {output.size()}')
