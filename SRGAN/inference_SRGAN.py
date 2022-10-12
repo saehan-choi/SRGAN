@@ -4,13 +4,6 @@ import random
 
 import torch
 import torch.nn as nn
-import torch.optim as optim
-
-from torch.utils.data import Dataset, DataLoader
-from torchvision.models import vgg19_bn
-
-from albumentations.pytorch.transforms import ToTensorV2
-from tqdm import tqdm
 
 # reference
 # https://medium.com/analytics-vidhya/super-resolution-gan-srgan-5e10438aec0c
@@ -36,7 +29,7 @@ class CFG:
     HR_patch_size = 64
     LR_patch_size = 16
 
-    weights_path = './weights/Generator_epochs_6.ptGenerator_epochs_41.pt'
+    weights_path = './weights/epoch99_generator.pt.pt'
 
 class Generator(nn.Module):
     def __init__(self):

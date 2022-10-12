@@ -5,13 +5,6 @@ import random
 
 import torch
 import torch.nn as nn
-import torch.optim as optim
-
-from torch.utils.data import Dataset, DataLoader
-from torchvision.models import vgg19_bn
-
-from albumentations.pytorch.transforms import ToTensorV2
-from tqdm import tqdm
 
 class CFG:
     

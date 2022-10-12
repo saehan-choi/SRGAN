@@ -29,8 +29,11 @@ class CFG:
     
     HR_patch_size = 160
     LR_patch_size = 40
+    
+    HR_img_size = 160
+    LR_img_size = 40
 
-    weights_path = './weights/Generator_epochs_6.ptGenerator_epochs_99.pt'
+    weights_path = './weights/epoch99_generator.pt.pt'
 
 class Generator(nn.Module):
     def __init__(self):
@@ -101,8 +104,8 @@ def set_seed(random_seed):
 
 def resize_img(path):
     HRimg = cv2.imread(path)
-    HRimg = cv2.resize(HRimg, (160, 160))
-    LRimg = cv2.resize(HRimg, (40, 40))
+    HRimg = cv2.resize(HRimg, (CFG.HR_img_size, CFG.HR_img_size))
+    LRimg = cv2.resize(HRimg, (CFG.LR_img_size, CFG.LR_img_size))
     return HRimg, LRimg
 
 if __name__ == "__main__":
