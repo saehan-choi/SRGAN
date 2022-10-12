@@ -30,7 +30,7 @@ class CFG:
     HR_patch_size = 160
     LR_patch_size = 40
 
-    weights_path = './weights/Generator_epochs_6.pt'
+    weights_path = './weights/'
 
 class DenseBlock(nn.Module):
     def __init__(self, in_channels=64, out_channels=64, bias=True):

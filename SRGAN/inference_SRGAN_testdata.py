@@ -4,13 +4,6 @@ import random
 
 import torch
 import torch.nn as nn
-import torch.optim as optim
-
-from torch.utils.data import Dataset, DataLoader
-from torchvision.models import vgg19_bn
-
-from albumentations.pytorch.transforms import ToTensorV2
-from tqdm import tqdm
 
 # reference
 # https://medium.com/analytics-vidhya/super-resolution-gan-srgan-5e10438aec0c
