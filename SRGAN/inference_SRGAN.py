@@ -5,11 +5,6 @@ import random
 import torch
 import torch.nn as nn
 
-# reference
-# https://medium.com/analytics-vidhya/super-resolution-gan-srgan-5e10438aec0c
-# https://www.kaggle.com/code/balraj98/single-image-super-resolution-gan-srgan-pytorch
-# ->여기도 보기
-
 import time
 
 class CFG:
@@ -28,6 +23,9 @@ class CFG:
     
     HR_patch_size = 64
     LR_patch_size = 16
+    
+    HR_img_size = 160
+    LR_img_size = 40
 
     weights_path = './weights/epoch99_generator.pt.pt'
 
@@ -100,8 +98,8 @@ def set_seed(random_seed):
 
 def resize_img(path):
     HRimg = cv2.imread(path)
-    HRimg = cv2.resize(HRimg, (100,100))
-    LRimg = cv2.resize(HRimg, (25,25))
+    HRimg = cv2.resize(HRimg, (CFG.HR_img_size, CFG.HR_img_size))
+    LRimg = cv2.resize(HRimg, (CFG.LR_img_size, CFG.LR_img_size))
     return HRimg, LRimg
 
 if __name__ == "__main__":
@@ -134,3 +132,7 @@ if __name__ == "__main__":
             ed = time.time()
             print(f"{round(ed-st,5)}s passed")
 
+# reference
+# https://arxiv.org/abs/1609.04802
+# https://medium.com/analytics-vidhya/super-resolution-gan-srgan-5e10438aec0c
+# https://www.kaggle.com/code/balraj98/single-image-super-resolution-gan-srgan-pytorch
