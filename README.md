@@ -9,13 +9,14 @@ LR image
 ![image](https://user-images.githubusercontent.com/70372577/195225683-8aa81576-3dde-4097-9f5b-7dca4b59bea7.png)
 SRGAN prediction image
 
-![image](https://user-images.githubusercontent.com/70372577/195225715-c0b67005-6bf4-4c7f-a9be-e0d63cf1590b.png)
+
+![image](https://user-images.githubusercontent.com/70372577/195226374-a3245c91-c056-475e-8d93-e04ed618e067.png)
 HR image
 
-![image](https://user-images.githubusercontent.com/70372577/195225731-e49335a3-396a-4bb4-a4be-84a18470faa0.png)
+![image](https://user-images.githubusercontent.com/70372577/195226388-19c0f724-1cee-4fb8-bb7e-31364ea364c1.png)
 LR image
 
-![image](https://user-images.githubusercontent.com/70372577/195225747-441d587d-1a5c-40a5-991e-c48e06bd0662.png)
+![image](https://user-images.githubusercontent.com/70372577/195226393-339a6c76-c898-4660-b2d9-1714f6947682.png)
 SRGAN prediction image
 
 
