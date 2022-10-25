@@ -5,11 +5,6 @@ import random
 import torch
 import torch.nn as nn
 
-# reference
-# https://medium.com/analytics-vidhya/super-resolution-gan-srgan-5e10438aec0c
-# https://www.kaggle.com/code/balraj98/single-image-super-resolution-gan-srgan-pytorch
-# ->여기도 보기
-
 import time
 
 class CFG:
@@ -33,7 +28,7 @@ class CFG:
     HR_img_size = 160
     LR_img_size = 40
 
-    weights_path = './weights/epoch99_generator.pt.pt'
+    weights_path = './weights/epoch99_generator.pt'
 
 class Generator(nn.Module):
     def __init__(self):
@@ -120,14 +115,14 @@ if __name__ == "__main__":
         patchs = []
         for l in lid:
             st = time.time()
-            
+
             path = CFG.valPath+l
             HRimg, LRimg = resize_img(path)
         
             # print(HRimg.shape)
             cv2.imwrite(CFG.resultPath+l.replace('.', '_LR.'), LRimg)
             cv2.imwrite(CFG.resultPath+l.replace('.', '_HR.'), HRimg)
-            
+
             LRimg = torch.from_numpy(LRimg).to(CFG.device, dtype=torch.float)
             LRimg = LRimg.permute(2,1,0).unsqueeze(0)
             result = G_Model(LRimg).squeeze(0).permute(2,1,0).cpu().detach().numpy()
@@ -138,4 +133,36 @@ if __name__ == "__main__":
 
             ed = time.time()
             print(f"{round(ed-st,5)}s passed")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

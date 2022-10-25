@@ -9,10 +9,11 @@ import time
 
 class CFG:
     
-    valPath = './data/val/'
+    # valPath = './data/val/'
+    valPath = './data/'    
     resultPath = './results/'
     device = 'cuda'
-    
+
     # srgan recommand lr 0.001
     lr = 1e-4
     batch_size = 64
@@ -21,8 +22,8 @@ class CFG:
     bceLoss = nn.BCELoss()
     epochs = 100
     
-    HR_patch_size = 64
-    LR_patch_size = 16
+    HR_patch_size = 160
+    LR_patch_size = 40
     
     HR_img_size = 160
     LR_img_size = 40
@@ -107,32 +108,37 @@ if __name__ == "__main__":
 
     G_Model = Generator().to(CFG.device)
     G_Model.load_state_dict(torch.load(CFG.weights_path))
-
+    G_Model = torch.jit.script(G_Model)
+    
     G_Model.eval()
     with torch.no_grad():
-        lid = os.listdir(CFG.valPath)
-        patchs = []
-        for l in lid:
-            st = time.time()
+        torch.jit.save(G_Model, './weights/script_Generator.pt')
+    
+
+    # G_Model.eval()
+    # with torch.no_grad():
+    #     lid = os.listdir(CFG.valPath)
+    #     patchs = []
+    #     for l in lid:
+    #         G_Model = Generator().to(CFG.device)
+    #         G_Model.load_state_dict(torch.load(CFG.weights_path))
             
-            path = CFG.valPath+l
-            HRimg, LRimg = resize_img(path)
-            # print(HRimg.shape)
-            cv2.imwrite(CFG.resultPath+l.replace('.', '_LR.'), LRimg)
-            cv2.imwrite(CFG.resultPath+l.replace('.', '_HR.'), HRimg)
+    #         # path = CFG.valPath+l
+    #         # HRimg, LRimg = resize_img(path)
+        
+    #         # LRimg = torch.from_numpy(LRimg).to(CFG.device, dtype=torch.float)
+    #         # LRimg = LRimg.permute(2,1,0).unsqueeze(0)
             
-            LRimg = torch.from_numpy(LRimg).to(CFG.device, dtype=torch.float)
-            LRimg = LRimg.permute(2,1,0).unsqueeze(0)
-            result = G_Model(LRimg).squeeze(0).permute(2,1,0).cpu().detach().numpy()
+    #         # st = time.time()
+    #         # result = G_Model(LRimg)
+    #         # ed = time.time()
+    #         # print(f'{ed-st}s passed (without script)')
 
-            # print(result.shape)
+    #         G_Model = torch.jit.script(G_Model)
+    #         st = time.time()
+    #         result = G_Model(LRimg)
+    #         ed = time.time()
+    #         print(f'{ed-st}s passed (with script)')
 
-            cv2.imwrite(CFG.resultPath+l.replace('.', '_pred.'), result)
 
-            ed = time.time()
-            print(f"{round(ed-st,5)}s passed")
-
-# reference
-# https://arxiv.org/abs/1609.04802
-# https://medium.com/analytics-vidhya/super-resolution-gan-srgan-5e10438aec0c
-# https://www.kaggle.com/code/balraj98/single-image-super-resolution-gan-srgan-pytorch
+    #         time.sleep(5)
